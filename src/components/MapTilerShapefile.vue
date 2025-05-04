@@ -11,6 +11,9 @@
     </div>
 
     <div id="map" class="map-container map-wrapper"></div>
+
+    <button @click="captureMapSnapshot">Capture Map Snapshot</button>
+
     <div class="form-container">
       <label>WSITENAME: <input v-model="formData.WSITENAME" /></label>
       <label>WORKSITEID: <input v-model="formData.WORKSITEID" /></label>
@@ -35,11 +38,37 @@ import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import shpwrite from "@mapbox/shp-write";
 import JSZip from "jszip";
 import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
+import { distance, lineString, nearestPointOnLine } from "@turf/turf";
 // import "https://cdn.maptiler.com/maptiler-sdk-js/v1.1.2/maptiler-sdk.min.css";
 // import "@maplibre/maplibre-gl-draw/dist/maplibre-gl-draw.css";
 
 const map = ref(null);
 const draw = ref(null);
+const lastDrawnFeature = ref(null);
+
+function getMinimumDistance(newLine, lastLine) {
+  let minDistance = Infinity;
+
+  for (const coord of newLine.geometry.coordinates) {
+    const point = {
+      type: "Feature",
+      geometry: {
+        type: "Point",
+        coordinates: coord,
+      },
+      properties: {},
+    };
+
+    const nearest = nearestPointOnLine(lastLine, point);
+    const d = distance(point, nearest, { units: "meters" });
+
+    if (d < minDistance) {
+      minDistance = d;
+    }
+  }
+
+  return minDistance;
+}
 
 const manualCoords = ref({
   startLat: "",
@@ -65,14 +94,83 @@ const formData = ref({
   PATHINDEX: "9",
 });
 
+const captureMapSnapshot = () => {
+  const canvas = map.value?.getCanvas();
+  if (!canvas) {
+    alert("Map not initialized yet.");
+    return;
+  }
+
+  map.value.once("idle", () => {
+    const canvas = map.value.getCanvas();
+    const dataURL = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = dataURL;
+    link.download = "map_snapshot.png";
+    link.click();
+  });
+};
+
+function pointToSegmentDistance([px, py], [x1, y1], [x2, y2]) {
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  const R = 6371000; // Earth radius in meters
+  const d = (lat1, lon1, lat2, lon2) => {
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  const A = [x1, y1],
+    B = [x2, y2],
+    P = [px, py];
+
+  const AB = [B[0] - A[0], B[1] - A[1]];
+  const AP = [P[0] - A[0], P[1] - A[1]];
+  const ab2 = AB[0] ** 2 + AB[1] ** 2;
+  const ap_ab = AP[0] * AB[0] + AP[1] * AB[1];
+  let t = ap_ab / ab2;
+
+  t = Math.max(0, Math.min(1, t));
+
+  const closest = [A[0] + AB[0] * t, A[1] + AB[1] * t];
+  return d(P[1], P[0], closest[1], closest[0]);
+}
+
+function isLineTooFar(newLine, existingLines, maxDistance = 50) {
+  const newCoords = newLine.geometry.coordinates;
+
+  for (let point of newCoords) {
+    for (let line of existingLines) {
+      const coords = line.geometry.coordinates;
+
+      for (let i = 0; i < coords.length - 1; i++) {
+        const segStart = coords[i];
+        const segEnd = coords[i + 1];
+        const distance = pointToSegmentDistance(point, segStart, segEnd);
+        if (distance <= maxDistance) {
+          return false; // ✅ Close enough
+        }
+      }
+    }
+  }
+  return true; // ❌ Too far
+}
+
 const initMap = () => {
   map.value = new maplibregl.Map({
     container: "map",
     // style: "https://demotiles.maplibre.org/style.json",
     style: `https://api.maptiler.com/maps/streets/style.json?key=${MAPTILER_API_KEY}`,
-    // center: [46.6753, 24.7136], // Riyadh coordinates (optional)
-    center: [0, 0], // center
-    zoom: 2,
+    center: [46.667717, 24.767861], // Riyadh coordinates (optional)24.767861, 46.667717
+    // center: [0, 0], // center
+    zoom: 15, // 2,
+    // 👇 Add this line:
+    crossSourceCollisions: false,
+    preserveDrawingBuffer: true, // Enable buffer preservation
   });
 
   draw.value = new MapboxDraw({
@@ -115,30 +213,50 @@ const initMap = () => {
     ],
   });
 
-  // map.value.addControl(draw.value, "top-left");
-  map.value.addControl(new maplibregl.NavigationControl(), "top-left");
+  map?.value?.once("load", () => {
+    const canvas = map.value.getCanvas();
+    canvas.crossOrigin = "anonymous";
+  });
 
-  // map.value.on("draw.create", (e) => {
-  //   console.log("Feature drawn:", e.features);
-  // });
+  map.value.addControl(draw.value, "top-left");
+  //   map.value.addControl(new maplibregl.NavigationControl(), "top-left");
 
-  // map.value.on("draw.selectionchange", (e) => {
-  //   const allFeatures = draw.value.getAll().features;
+  map.value.on("draw.create", (e) => {
+    const newFeature = e.features[0];
 
-  //   allFeatures.forEach((feature) => {
-  //     feature.properties.user_is_selected = false;
-  //     if (e.features[0]?.id === feature?.id) {
-  //       feature.properties.user_is_selected = true;
-  //     }
-  //   });
+    // const allFeatures = draw.value.getAll().features;
+    // console.log("allFeatures: ", allFeatures);
+    // const otherLines = allFeatures.filter((f) => f.id !== newFeature.id);
 
-  //   console.log("allFeatures: ", allFeatures);
-  //   // Update the entire set to reflect selection state
-  //   draw.value.set({
-  //     type: "FeatureCollection",
-  //     features: allFeatures,
-  //   });
-  // });
+    // if (otherLines.length > 0 && isLineTooFar(newFeature, otherLines)) {
+    //   alert("New polyline is too far from existing lines (>50 meters).");
+    //   draw.value.delete(newFeature.id); // ⛔️ Remove the too-far line
+    //   return;
+    // }
+
+    // selectedFeatureId.value = newFeature.id;
+
+    // Only run the check if a previous line exists
+    if (lastDrawnFeature.value) {
+      const newLine = lineString(newFeature.geometry.coordinates);
+      const lastLine = lineString(lastDrawnFeature.value.geometry.coordinates);
+
+      const minDist = getMinimumDistance(newLine, lastLine);
+
+      if (minDist > 50) {
+        alert(
+          `Error: Polyline must be within 50 meters of the last line. Found: ${minDist.toFixed(
+            2
+          )} meters.`
+        );
+        draw.value.delete(newFeature.id);
+        return;
+      }
+    }
+
+    // Set current line as last for next comparison
+    lastDrawnFeature.value = newFeature;
+  });
 
   map.value.on("draw.selectionchange", (e) => {
     const selected = e.features[0];
@@ -208,6 +326,8 @@ const initMap = () => {
     if (map.value.getSource("highlight-line")) {
       map.value.removeSource("highlight-line");
     }
+
+    lastDrawnFeature.value = null;
   });
 };
 
@@ -429,9 +549,6 @@ body {
   width: calc(100vw - 40px);
   height: 600px;
   margin-bottom: 20px;
-}
-.map-wrapper * {
-  all: revert;
 }
 .manual-coord-form {
   display: grid;
