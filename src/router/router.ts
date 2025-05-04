@@ -6,17 +6,19 @@ import HelloWorld from "../components/HelloWorld.vue";
 import ShapeFileUploader from "../components/ShapeFileUploader.vue";
 import ShapeFileGenerator from "../components/ShapeFileGenerator.vue";
 import MapTilerShapefile from "../components/MapTilerShapefile.vue";
+import Domtoimage from "../components/domtoimage.vue";
+import HTML2CanvasImage from "../components/HTML2CanvasImage.vue";
 const routes: RouteRecordRaw[] = [
   {
     path: "/home",
     name: "home",
     component: HelloWorld,
   },
-  {
-    path: "/generate-shapefile",
-    name: "generate-shapefile",
-    component: ShapeFileGenerator,
-  },
+  // {
+  //   path: "/generate-shapefile",
+  //   name: "generate-shapefile",
+  //   component: ShapeFileGenerator,
+  // },
   {
     path: "/upload-shapefile",
     name: "upload-shapefile",
@@ -26,6 +28,16 @@ const routes: RouteRecordRaw[] = [
     path: "/maptiler-shapefile",
     name: "maptiler-shapefile",
     component: MapTilerShapefile,
+  },
+  {
+    path: "/html-2-canvas",
+    name: "html-2-canvas",
+    component: HTML2CanvasImage,
+  },
+  {
+    path: "/dom-to-image",
+    name: "dom-to-image",
+    component: Domtoimage,
   },
   {
     path: "/error",
