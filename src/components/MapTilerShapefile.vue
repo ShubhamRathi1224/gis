@@ -33,185 +33,48 @@
 import { onMounted, ref } from "vue";
 import maplibregl from "maplibre-gl";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
-
-// ✅ Use correct import (no require needed)
 import shpwrite from "@mapbox/shp-write";
 import JSZip from "jszip";
-import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
-import { distance, lineString, nearestPointOnLine } from "@turf/turf";
-// import "https://cdn.maptiler.com/maptiler-sdk-js/v1.1.2/maptiler-sdk.min.css";
+import * as turf from "@turf/turf";
+import {
+  LINE_DETAILS_DEFAULTS,
+  MANUAL_COORDS,
+  MAPBOX_HIGHLIGHT_LAYER_DEFAULTS,
+  MAPBOX_VALUE_DEFAULTS,
+  MAPLIBRE_MAP_DEFAULT_CONFIG,
+  MAPTILER_API_KEY,
+} from "../utils/constants";
+import {
+  calculateLineLength,
+  createOrUpdatePolylineOnMap,
+  getLastCreatedLine,
+  isStartOrEndPointOnLine,
+  mapSnapshot,
+  segmentsIntersect,
+} from "../utils/utils";
 // import "@maplibre/maplibre-gl-draw/dist/maplibre-gl-draw.css";
+import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
+// import "https://cdn.maptiler.com/maptiler-sdk-js/v1.1.2/maptiler-sdk.min.css";
 
 const map = ref(null);
 const draw = ref(null);
 const lastDrawnFeature = ref(null);
 
-function getMinimumDistance(newLine, lastLine) {
-  let minDistance = Infinity;
-
-  for (const coord of newLine.geometry.coordinates) {
-    const point = {
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: coord,
-      },
-      properties: {},
-    };
-
-    const nearest = nearestPointOnLine(lastLine, point);
-    const d = distance(point, nearest, { units: "meters" });
-
-    if (d < minDistance) {
-      minDistance = d;
-    }
-  }
-
-  return minDistance;
-}
-
-const manualCoords = ref({
-  startLat: "",
-  startLng: "",
-  endLat: "",
-  endLng: "",
-});
+const manualCoords = ref(MANUAL_COORDS);
 
 const selectedFeatureId = ref(null);
 
-const MAPTILER_API_KEY = "NntEHIOqXdAtLme0lFus"; // 🔑 Replace this
-
 // Form data for attributes
-const formData = ref({
-  WSITENAME: "1",
-  WORKSITEID: "2",
-  STREETNAME: "3",
-  STREETW: "4",
-  PATHWIDTH: "5",
-  PATHLENGTH: "6",
-  PATHDEPTH: "7",
-  ROADSCRAP: "8",
-  PATHINDEX: "9",
+const formData = ref(LINE_DETAILS_DEFAULTS);
+
+onMounted(() => {
+  initMap();
 });
 
-const captureMapSnapshot = () => {
-  const canvas = map.value?.getCanvas();
-  if (!canvas) {
-    alert("Map not initialized yet.");
-    return;
-  }
-
-  map.value.once("idle", () => {
-    const canvas = map.value.getCanvas();
-    const dataURL = canvas.toDataURL("image/png");
-    const link = document.createElement("a");
-    link.href = dataURL;
-    link.download = "map_snapshot.png";
-    link.click();
-  });
-};
-
-function pointToSegmentDistance([px, py], [x1, y1], [x2, y2]) {
-  const toRad = (deg) => (deg * Math.PI) / 180;
-
-  const R = 6371000; // Earth radius in meters
-  const d = (lat1, lon1, lat2, lon2) => {
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  };
-
-  const A = [x1, y1],
-    B = [x2, y2],
-    P = [px, py];
-
-  const AB = [B[0] - A[0], B[1] - A[1]];
-  const AP = [P[0] - A[0], P[1] - A[1]];
-  const ab2 = AB[0] ** 2 + AB[1] ** 2;
-  const ap_ab = AP[0] * AB[0] + AP[1] * AB[1];
-  let t = ap_ab / ab2;
-
-  t = Math.max(0, Math.min(1, t));
-
-  const closest = [A[0] + AB[0] * t, A[1] + AB[1] * t];
-  return d(P[1], P[0], closest[1], closest[0]);
-}
-
-function isLineTooFar(newLine, existingLines, maxDistance = 50) {
-  const newCoords = newLine.geometry.coordinates;
-
-  for (let point of newCoords) {
-    for (let line of existingLines) {
-      const coords = line.geometry.coordinates;
-
-      for (let i = 0; i < coords.length - 1; i++) {
-        const segStart = coords[i];
-        const segEnd = coords[i + 1];
-        const distance = pointToSegmentDistance(point, segStart, segEnd);
-        if (distance <= maxDistance) {
-          return false; // ✅ Close enough
-        }
-      }
-    }
-  }
-  return true; // ❌ Too far
-}
-
 const initMap = () => {
-  map.value = new maplibregl.Map({
-    container: "map",
-    // style: "https://demotiles.maplibre.org/style.json",
-    style: `https://api.maptiler.com/maps/streets/style.json?key=${MAPTILER_API_KEY}`,
-    center: [46.667717, 24.767861], // Riyadh coordinates (optional)24.767861, 46.667717
-    // center: [0, 0], // center
-    zoom: 15, // 2,
-    // 👇 Add this line:
-    crossSourceCollisions: false,
-    preserveDrawingBuffer: true, // Enable buffer preservation
-  });
+  map.value = new maplibregl.Map(MAPLIBRE_MAP_DEFAULT_CONFIG);
 
-  draw.value = new MapboxDraw({
-    displayControlsDefault: false,
-    controls: {
-      line_string: true, // ✅ Only allow polylines
-      trash: true,
-    },
-    styles: [
-      // Default (non-selected) lines
-      {
-        id: "gl-draw-lines",
-        type: "line",
-        filter: [
-          "all",
-          ["==", "$type", "LineString"],
-          ["!=", "user_is_selected", true],
-        ],
-        paint: {
-          "line-color": "#f00",
-          "line-width": 3,
-          "line-dasharray": ["literal", [0.5, 2]],
-        },
-      },
-      // Highlighted (selected) line
-      {
-        id: "gl-draw-lines-highlighted",
-        type: "line",
-        filter: [
-          "all",
-          ["==", "$type", "LineString"],
-          ["==", "user_is_selected", true],
-        ],
-        paint: {
-          "line-color": "#007bff", // Blue highlight
-          "line-width": 3,
-          "line-dasharray": ["literal", [0.5, 2]],
-        },
-      },
-    ],
-  });
+  draw.value = new MapboxDraw(MAPBOX_VALUE_DEFAULTS);
 
   map?.value?.once("load", () => {
     const canvas = map.value.getCanvas();
@@ -219,44 +82,70 @@ const initMap = () => {
   });
 
   map.value.addControl(draw.value, "top-left");
-  //   map.value.addControl(new maplibregl.NavigationControl(), "top-left");
+  // map.value.addControl(new maplibregl.NavigationControl(), "top-left");
 
   map.value.on("draw.create", (e) => {
     const newFeature = e.features[0];
 
-    // const allFeatures = draw.value.getAll().features;
-    // console.log("allFeatures: ", allFeatures);
-    // const otherLines = allFeatures.filter((f) => f.id !== newFeature.id);
+    const newCoords = newFeature.geometry.coordinates;
 
-    // if (otherLines.length > 0 && isLineTooFar(newFeature, otherLines)) {
-    //   alert("New polyline is too far from existing lines (>50 meters).");
-    //   draw.value.delete(newFeature.id); // ⛔️ Remove the too-far line
-    //   return;
-    // }
-
-    // selectedFeatureId.value = newFeature.id;
-
-    // Only run the check if a previous line exists
-    if (lastDrawnFeature.value) {
-      const newLine = lineString(newFeature.geometry.coordinates);
-      const lastLine = lineString(lastDrawnFeature.value.geometry.coordinates);
-
-      const minDist = getMinimumDistance(newLine, lastLine);
-
-      if (minDist > 50) {
-        alert(
-          `Error: Polyline must be within 50 meters of the last line. Found: ${minDist.toFixed(
-            2
-          )} meters.`
-        );
-        draw.value.delete(newFeature.id);
-        return;
-      }
+    if (!lastDrawnFeature.value) {
+      lastDrawnFeature.value = newFeature;
+      return;
     }
 
-    // Set current line as last for next comparison
-    lastDrawnFeature.value = newFeature;
+    // 50 meter logic
+    const lastCoords = lastDrawnFeature.value.geometry.coordinates;
+    const isValidWithin50Meters = isWithin50Meters(lastCoords, newCoords);
+    if (!isValidWithin50Meters) {
+      alert(
+        "At least one point on the new line must be within 50 meters of the previous line."
+      );
+      draw.value.delete(newFeature.id);
+    } else {
+      lastDrawnFeature.value = newFeature;
+    }
+
+    // // Replace this with your logic to find the correct existing line to compare with
+    // const existingFeature = getLastCreatedLine(draw); // your function
+    // if (!existingFeature) return;
+    // const existingCoords = existingFeature.geometry.coordinates;
+    // const isValidReplacePartLine = isStartOrEndPointOnLine(
+    //   newCoords,
+    //   existingCoords
+    // );
+    // if (!isValidReplacePartLine) {
+    //   alert("❌ Invalid: Line must start or end on an existing line.");
+    //   draw.value.delete(newFeature.id); // Optional: remove the invalid line
+    // } else {
+    //   console.log("✅ Line is valid and connected to existing line.");
+    // }
   });
+
+  // map.value.on("draw.update", handleDrawUpdate);
+
+  // function handleDrawUpdate(e) {
+  //   const newFeature = e.features[0];
+
+  //   if (newFeature.geometry.type !== "LineString") return;
+
+  //   const newCoords = newFeature.geometry.coordinates;
+
+  //   // Replace this with your logic to find the correct existing line to compare with
+  //   const existingFeature = getLastCreatedLine(draw); // your function
+  //   if (!existingFeature) return;
+  //   const existingCoords = existingFeature.geometry.coordinates;
+  //   const isValidReplacePartLine = isStartOrEndPointOnLine(
+  //     newCoords,
+  //     existingCoords
+  //   );
+  //   if (!isValidReplacePartLine) {
+  //     alert("❌ Invalid: Line must start or end on an existing line.");
+  //     draw.value.delete(newFeature.id); // Optional: remove the invalid line
+  //   } else {
+  //     console.log("✅ Line is valid and connected to existing line.");
+  //   }
+  // }
 
   map.value.on("draw.selectionchange", (e) => {
     const selected = e.features[0];
@@ -298,17 +187,7 @@ const initMap = () => {
       data: selected,
     });
 
-    map.value.addLayer({
-      id: "highlight-line",
-      type: "line",
-      source: "highlight",
-      layout: {},
-      paint: {
-        "line-color": "#007bff", // Blue color
-        "line-width": 3,
-        "line-dasharray": ["literal", [0.5, 2]],
-      },
-    });
+    map.value.addLayer(MAPBOX_HIGHLIGHT_LAYER_DEFAULTS);
   });
 
   map.value.on("draw.delete", () => {
@@ -332,71 +211,8 @@ const initMap = () => {
 };
 
 const createOrUpdatePolyline = () => {
-  const { startLat, startLng, endLat, endLng } = manualCoords.value;
-
-  if (
-    !startLat ||
-    !startLng ||
-    !endLat ||
-    !endLng ||
-    isNaN(startLat) ||
-    isNaN(startLng) ||
-    isNaN(endLat) ||
-    isNaN(endLng)
-  ) {
-    alert("Please enter valid start and end coordinates.");
-    return;
-  }
-
-  const line = {
-    type: "Feature",
-    geometry: {
-      type: "LineString",
-      coordinates: [
-        [parseFloat(startLng), parseFloat(startLat)],
-        [parseFloat(endLng), parseFloat(endLat)],
-      ],
-    },
-    properties: {},
-  };
-
-  if (selectedFeatureId.value) {
-    // Update existing feature
-    draw.value.delete(selectedFeatureId.value);
-    const [newId] = draw.value.add(line);
-    selectedFeatureId.value = newId;
-  } else {
-    // Add new line
-    const [newId] = draw.value.add(line);
-    selectedFeatureId.value = newId;
-  }
+  createOrUpdatePolylineOnMap(manualCoords, selectedFeatureId, draw);
 };
-
-onMounted(() => {
-  initMap();
-});
-
-// Helper: Calculate Line Length (in meters)
-function calculateLineLength(coordinates) {
-  let total = 0;
-  for (let i = 1; i < coordinates.length; i++) {
-    const [lon1, lat1] = coordinates[i - 1];
-    const [lon2, lat2] = coordinates[i];
-    total += haversineDistance(lat1, lon1, lat2, lon2);
-  }
-  return total;
-}
-
-function haversineDistance(lat1, lon1, lat2, lon2) {
-  const toRad = (x) => (x * Math.PI) / 180;
-  const R = 6371000; // Radius of Earth in meters
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 // Helper: Check for Intersections
 function hasIntersections(features) {
@@ -420,13 +236,42 @@ function hasIntersections(features) {
   return false;
 }
 
-function segmentsIntersect([p1, p2], [q1, q2]) {
-  const ccw = (a, b, c) =>
-    (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0]);
-  return (
-    ccw(p1, q1, q2) !== ccw(p2, q1, q2) && ccw(p1, p2, q1) !== ccw(p1, p2, q2)
-  );
+// max dist b/w 2 excavations must not exceeds 50 meter(farthest point)(adjacent excavations) ???? - minimum(coordinate) distance should not be greater than 50 mtr
+
+function isWithin50Meters(line1Coords, line2Coords) {
+  const line1DensePoints = getInterpolatedPoints(line1Coords, 1); // adjust interval as needed
+  const line2DensePoints = getInterpolatedPoints(line2Coords, 1);
+
+  for (const p2 of line2DensePoints) {
+    for (const p1 of line1DensePoints) {
+      const dist = turf.distance(turf.point(p1), turf.point(p2), {
+        units: "meters",
+      });
+      if (dist <= 50) return true;
+    }
+  }
+
+  return false;
 }
+
+function getInterpolatedPoints(coords, intervalMeters = 1) {
+  const line = turf.lineString(coords);
+  const length = turf.length(line, { units: "meters" }); // Total length in meters
+
+  const points = [];
+  for (let dist = 0; dist <= length; dist += intervalMeters) {
+    const pointOnLine = turf.along(line, dist, { units: "meters" });
+    points.push(pointOnLine.geometry.coordinates);
+  }
+
+  return points;
+}
+
+// max dist b/w 2 excavations must not exceeds 50 meter(farthest point)(adjacent excavations) ???? - minimum(coordinate) distance should not be greater than 50 mtr
+
+const captureMapSnapshot = () => {
+  mapSnapshot(map);
+};
 
 const generateShapefile = async () => {
   try {
@@ -487,11 +332,6 @@ const generateShapefile = async () => {
       (field) => !formData.value?.[field]
     );
 
-    console.log("formData: ", formData);
-    const missingFields1 = REQUIRED_FIELDS.filter(
-      (field) => !formData.value?.[field]
-    );
-    console.log("missingFields1: ", missingFields1);
     if (missingFields.length > 0) {
       alert(`Missing required fields: ${missingFields.join(", ")}`);
       return;
