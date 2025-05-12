@@ -64,8 +64,8 @@ const emit = defineEmits(["update:modelValue"]);
 // Initialize clause with a default structure, if not present in props.modelValue
 const clause = reactive({
   ...props.modelValue,
-  column: props.modelValue?.configPath || "", // Ensure configPath is initialized
-  column: props.modelValue?.requestTypeId || "", // Ensure requestTypeId is initialized
+  configPath: props.modelValue?.configPath || "", // Ensure configPath is initialized
+  requestTypeId: props.modelValue?.requestTypeId || "", // Ensure requestTypeId is initialized
   column: props.modelValue?.column || "", // Ensure column is initialized
   subquery: {
     select: props.modelValue?.subquery?.select || "", // Initialize select if not present

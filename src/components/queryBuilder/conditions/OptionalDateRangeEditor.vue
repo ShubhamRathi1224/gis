@@ -44,9 +44,11 @@ const emit = defineEmits(["update:modelValue"]);
 const clause = reactive({
   ...props.modelValue,
   column: props.modelValue?.column || "", // Ensure column is initialized
-  column: props.modelValue?.configPaths?.min || "", // Ensure configPaths is initialized
-  column: props.modelValue?.configPaths?.max || "", // Ensure configPaths is initialized
-  column: props.modelValue?.requestTypeId || "", // Ensure requestTypeId is initialized
+  requestTypeId: props.modelValue?.requestTypeId || "", // Ensure requestTypeId is initialized
+  configPaths: {
+    min: props.modelValue?.configPaths?.min || "", // Ensure configPaths is initialized
+    max: props.modelValue?.configPaths?.max || "", // Ensure configPaths is initialized
+  },
 });
 
 // Watch for changes and emit the updated value
