@@ -100,7 +100,7 @@
 import { reactive, watch } from "vue";
 
 const props = defineProps({
-  clause: Object,
+  modelValue: Object,
 });
 const emit = defineEmits(["update:modelValue"]);
 

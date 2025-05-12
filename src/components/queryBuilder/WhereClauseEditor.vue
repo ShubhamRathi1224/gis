@@ -158,7 +158,6 @@ function getComponent(type) {
   switch (type) {
     case "condition":
       return SimpleConditionEditor;
-    // return ConditionEditor;
     case "custom_validation_match":
       return CustomValidationMatchEditor;
     case "not_in_subquery":
@@ -169,7 +168,6 @@ function getComponent(type) {
       return OptionalDateRangeEditor;
     default:
       return SimpleConditionEditor;
-    // return ConditionEditor;
   }
 }
 </script>
