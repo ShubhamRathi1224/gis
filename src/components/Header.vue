@@ -7,6 +7,7 @@
       <router-link to="/upload-shapefile">Upload shapefile</router-link>
       <router-link to="/html-2-canvas">html2canvas</router-link>
       <router-link to="/dom-to-image">domtoimage</router-link>
+      <router-link to="/sql-query-builder">SQL query builder</router-link>
     </nav>
   </div>
 </template>

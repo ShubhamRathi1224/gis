@@ -34,6 +34,29 @@ AND ( (SELECT JSON_VALUE(AvailableRequestTypes, '$.license.expiryDaysMoreThan') 
 AND ( (SELECT JSON_VALUE(AvailableRequestTypes, '$.license.expiryDaysLessThan') AS expiryDaysLessThan FROM RequestTypes where Id = '8E2FAABF-D426-4558-9176-65F330BB95B9') is null or (DATEDIFF(DAY, CURRENT_TIMESTAMP, l.ExpiryDate) < (SELECT JSON_VALUE(AvailableRequestTypes, '$.license.expiryDaysLessThan') AS expiryDaysLessThan FROM RequestTypes where Id = '8E2FAABF-D426-4558-9176-65F330BB95B9')))
 `;
 
+export const basicQueryStarter = {
+  queryType: "SELECT",
+  select: ["*"],
+  from: {
+    table: "Licenses",
+    alias: "l",
+  },
+  joins: [],
+  where: [],
+};
+
+export const joinQueryStarter = {
+  queryType: "SELECT",
+  select: ["*"],
+  from: {
+    table: "Licenses",
+    alias: "l",
+  },
+  joins: [],
+  where: [],
+  on: "",
+  type: "INNER",
+};
 // Explanation of JSON Concepts
 // type keys allow the query builder to interpret how to render conditions (e.g. condition, in_subquery, not_in_subquery, optional_condition).
 // configPath allows the builder to check if a config key exists and build conditionally.
@@ -204,7 +227,7 @@ const params = {
   ],
 };
 
-const params1 = {
+export const params1 = {
   queryType: "SELECT",
   select: ["*"],
   from: {
@@ -386,3 +409,205 @@ const params1 = {
     },
   ],
 };
+
+export function generateSQL(queryJson) {
+  console.log("queryJson: ", queryJson);
+  let sqlQuery = "";
+
+  // Handle SELECT
+  sqlQuery += `SELECT ${queryJson.select.join(", ")}\n`;
+
+  // Handle FROM clause
+  sqlQuery += `FROM ${queryJson.from.table} ${queryJson.from.alias}\n`;
+
+  // Handle JOINS (none in the given structure, but we will include if necessary)
+  if (queryJson.joins && queryJson.joins.length > 0) {
+    queryJson.joins.forEach((join) => {
+      sqlQuery += `JOIN ${join.table} ${join.alias} ON ${join.on}\n`;
+    });
+  }
+
+  // Handle WHERE conditions
+  if (queryJson.where && queryJson.where.length > 0) {
+    sqlQuery += "WHERE ";
+    queryJson.where.forEach((condition, index) => {
+      if (index > 0) sqlQuery += " AND ";
+      switch (condition.type) {
+        case "condition":
+          sqlQuery += `${condition.column} ${condition.operator} '${condition.value}'`;
+          break;
+        case "not_in_subquery":
+          sqlQuery += `${condition.column} NOT IN ( ${generateSQL(
+            condition.subquery
+          )} )`;
+          break;
+        case "in_subquery":
+          sqlQuery += `${condition.column} IN ( ${generateSQL(
+            condition.subquery
+          )} )`;
+          break;
+        case "custom_validation_match":
+          sqlQuery += `EXISTS (SELECT 1 FROM ${condition.validationsFrom.table} vc WHERE ${condition.validationLogic.matchExpression} AND ${condition.finalJoin.condition})`;
+          break;
+        case "optional_condition_or_subquery":
+          sqlQuery += `${condition.column} = (SELECT ${generateSQL(
+            condition.subquery
+          )})`;
+          break;
+        case "optional_date_range_condition":
+          sqlQuery += `${condition.column} BETWEEN '${condition.configPaths.min}' AND '${condition.configPaths.max}'`;
+          break;
+      }
+    });
+  }
+
+  return sqlQuery.trim();
+}
+
+// export function generateSQL1(query) {
+//   const selectClause = `SELECT ${query.select.join(", ")} FROM ${
+//     query.from.table
+//   } AS ${query.from.alias}`;
+//   const whereClause = buildWhereClause(query.where);
+//   return `${selectClause} WHERE ${whereClause}`;
+// }
+
+// function buildWhereClause(conditions) {
+//   return conditions
+//     .map((condition) => {
+//       switch (condition.type) {
+//         case "condition":
+//           return `${condition.column} ${condition.operator} '${condition.value}'`;
+//         case "not_in_subquery":
+//           return `${condition.column} NOT IN (${buildSubquery(
+//             condition.subquery
+//           )})`;
+//         // Implement other condition types as needed
+//         default:
+//           return "";
+//       }
+//     })
+//     .join(" AND ");
+// }
+
+// function buildSubquery(subquery) {
+//   const selectClause = `SELECT ${subquery.select
+//     .map((sel) => {
+//       if (sel.json_value) {
+//         return `JSON_VALUE(${sel.json_value.column}, '${sel.json_value.path}') AS ${sel.alias}`;
+//       }
+//       return sel;
+//     })
+//     .join(", ")}`;
+//   const fromClause = `FROM ${subquery.from.table} AS ${subquery.from.alias}`;
+//   const whereClause = buildWhereClause(subquery.where);
+//   return `${selectClause} ${fromClause} WHERE ${whereClause}`;
+// }
+
+export function generateSQL1(query) {
+  const selectClause = `SELECT ${query.select.join(", ")} FROM ${
+    query.from.table
+  } AS ${query.from.alias}`;
+  const whereClause = buildWhereClause(query.where);
+  return `${selectClause} WHERE ${whereClause}`;
+}
+
+function buildWhereClause(conditions) {
+  return conditions
+    .map((condition) => {
+      switch (condition.type) {
+        case "condition":
+          return `${condition.column} ${condition.operator} '${condition.value}'`;
+        case "not_in_subquery":
+          return `${condition.column} NOT IN (${buildSubquery(
+            condition.subquery
+          )})`;
+        case "in_subquery":
+          return `${condition.column} IN (${buildSubquery(
+            condition.subquery
+          )})`;
+        case "in":
+          return `${condition.column} IN (${condition.values
+            .map((v) => `'${v}'`)
+            .join(", ")})`;
+        case "custom_validation_match":
+          return buildCustomValidationMatch(condition);
+        case "optional_condition_or_subquery":
+          return buildOptionalConditionOrSubquery(condition);
+        case "optional_date_range_condition":
+          return buildOptionalDateRangeCondition(condition);
+        default:
+          return "";
+      }
+    })
+    .filter(Boolean)
+    .join(" AND ");
+}
+
+function buildSubquery(subquery) {
+  const select = subquery.select
+    .map((sel) => {
+      if (typeof sel === "string") return sel;
+      if (sel.json_value) {
+        return `JSON_VALUE(${sel.json_value.column}, '${sel.json_value.path}') AS ${sel.alias}`;
+      }
+      return "";
+    })
+    .join(", ");
+
+  const from = `FROM ${subquery.from.table}${
+    subquery.from.alias ? " AS " + subquery.from.alias : ""
+  }`;
+  const openjson = subquery.openjson
+    ? `CROSS APPLY OPENJSON(${subquery.openjson.column}, '${
+        subquery.openjson.path
+      }') AS ${subquery.openjson.path.split(".").pop()}`
+    : "";
+  const where = subquery.where
+    ? "WHERE " + buildWhereClause(subquery.where)
+    : "";
+
+  return `SELECT ${select} ${from} ${openjson} ${where}`;
+}
+
+function buildCustomValidationMatch(cond) {
+  const jsonExtract = `SELECT ${cond.validationsFrom.jsonPath
+    .split(".")
+    .pop()}.value FROM ${cond.validationsFrom.table} CROSS APPLY OPENJSON(${
+    cond.validationsFrom.column
+  }, '${cond.validationsFrom.jsonPath}') AS ${cond.validationsFrom.jsonPath
+    .split(".")
+    .pop()} WHERE Id = '${cond.requestTypeId}'`;
+
+  const validationLogic = `SELECT r.Id FROM Requests r \
+  JOIN (SELECT r.Id AS RequestId, fv.RequestTypeId, COUNT(*) AS TotalValidations, \
+  SUM(CASE WHEN JSON_VALUE(r.${cond.validationLogic.compareColumn}, '$.' + ValidationKey) = ValidationValue THEN 1 ELSE 0 END) AS PassedValidations \
+  FROM Requests r CROSS JOIN ( \
+  SELECT rt.Id AS RequestTypeId, JSONData.[key] AS ValidationKey, JSONData.[value] AS ValidationValue \
+  FROM RequestTypes rt CROSS APPLY OPENJSON(rt.AvailableRequestTypes, '${cond.validationsFrom.jsonPath}') \
+  WITH ([key] NVARCHAR(MAX), [value] NVARCHAR(MAX)) AS JSONData \
+  WHERE Id = '${cond.requestTypeId}' ) fv \
+  WHERE r.RequestTypeId = '${cond.validationLogic.filters[0].value}' GROUP BY r.Id, fv.RequestTypeId) vc \
+  ON r.Id = vc.RequestId WHERE vc.TotalValidations = vc.PassedValidations`;
+
+  return `((${jsonExtract}) IS NULL OR (${validationLogic}))`;
+}
+
+function buildOptionalConditionOrSubquery(cond) {
+  const pathAlias = cond.configPath.split(".").pop();
+  const jsonExtract = `SELECT ${pathAlias}.value FROM RequestTypes CROSS APPLY OPENJSON(AvailableRequestTypes, '${cond.configPath}') AS ${pathAlias} WHERE Id = '${cond.requestTypeId}'`;
+  const subquery = buildSubquery(cond.subquery);
+  return `((${jsonExtract}) IS NULL OR (${subquery}))`;
+}
+
+function buildOptionalDateRangeCondition(cond) {
+  const min = cond.configPaths.min.split(".").pop();
+  const max = cond.configPaths.max.split(".").pop();
+  const baseQuery = `SELECT JSON_VALUE(AvailableRequestTypes, '$.license.' + key) AS value FROM RequestTypes WHERE Id = '${cond.requestTypeId}'`;
+
+  const minCheck = `((SELECT JSON_VALUE(AvailableRequestTypes, '${cond.configPaths.min}') FROM RequestTypes WHERE Id = '${cond.requestTypeId}') IS NULL OR DATEDIFF(DAY, CURRENT_TIMESTAMP, ${cond.column}) > (SELECT JSON_VALUE(AvailableRequestTypes, '${cond.configPaths.min}') FROM RequestTypes WHERE Id = '${cond.requestTypeId}'))`;
+
+  const maxCheck = `((SELECT JSON_VALUE(AvailableRequestTypes, '${cond.configPaths.max}') FROM RequestTypes WHERE Id = '${cond.requestTypeId}') IS NULL OR DATEDIFF(DAY, CURRENT_TIMESTAMP, ${cond.column}) < (SELECT JSON_VALUE(AvailableRequestTypes, '${cond.configPaths.max}') FROM RequestTypes WHERE Id = '${cond.requestTypeId}'))`;
+
+  return `${minCheck} AND ${maxCheck}`;
+}

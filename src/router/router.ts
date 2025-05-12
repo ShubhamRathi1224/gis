@@ -8,6 +8,8 @@ import ShapeFileGenerator from "../components/ShapeFileGenerator.vue";
 import MapTilerShapefile from "../components/MapTilerShapefile.vue";
 import Domtoimage from "../components/domtoimage.vue";
 import HTML2CanvasImage from "../components/HTML2CanvasImage.vue";
+import QueryBuilder from "../components/queryBuilder/QueryBuilder.vue";
+import SQLQueryBuilder from "../components/SQLQueryBuilder.vue";
 const routes: RouteRecordRaw[] = [
   {
     path: "/home",
@@ -38,6 +40,11 @@ const routes: RouteRecordRaw[] = [
     path: "/dom-to-image",
     name: "dom-to-image",
     component: Domtoimage,
+  },
+  {
+    path: "/sql-query-builder",
+    name: "sql-query-builder",
+    component: SQLQueryBuilder,
   },
   {
     path: "/error",
