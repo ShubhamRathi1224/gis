@@ -159,8 +159,8 @@ function getComponent(type) {
     case "condition":
       return SimpleConditionEditor;
     // return ConditionEditor;
-    // case "custom_validation_match":
-    //   return CustomValidationMatchEditor;
+    case "custom_validation_match":
+      return CustomValidationMatchEditor;
     case "not_in_subquery":
       return NotInSubqueryEditor;
     case "optional_condition_or_subquery":

@@ -97,9 +97,47 @@
 </template>
 
 <script setup>
+import { reactive, watch } from "vue";
+
 const props = defineProps({
   clause: Object,
 });
+const emit = defineEmits(["update:modelValue"]);
+
+// Initialize clause with a default structure, if not present in props.modelValue
+const clause = reactive({
+  ...props.modelValue,
+  requestTypeId: props.modelValue?.requestTypeId || "", // Ensure requestTypeId is initialized
+  targetRequestTypeId: props.modelValue?.targetRequestTypeId || "", // Ensure requestTypeId is initialized
+  validationsFrom: {
+    table: props.modelValue?.validationsFrom?.table || "", // Initialize where if not present
+    column: props.modelValue?.validationsFrom?.column || "", // Initialize where if not present
+    jsonPath: props.modelValue?.validationsFrom?.jsonPath || "", // Initialize select if not present
+  },
+  validationLogic: {
+    source: props.modelValue?.validationLogic?.source || "", // Initialize where if not present
+    compareColumn: props.modelValue?.validationLogic?.compareColumn || "", // Initialize where if not present
+    matchExpression: props.modelValue?.validationLogic?.matchExpression || "", // Initialize select if not present
+    groupBy: props.modelValue?.validationLogic?.groupBy || "", // Initialize select if not present
+    filters: props.modelValue?.validationLogic?.filters || "", // Initialize select if not present
+  },
+  finalJoin: {
+    table: props.modelValue?.finalJoin?.table || "", // Initialize where if not present
+    alias: props.modelValue?.finalJoin?.alias || "", // Initialize where if not present
+    on: props.modelValue?.finalJoin?.on || "", // Initialize select if not present
+    condition: props.modelValue?.finalJoin?.condition || "", // Initialize select if not present
+  },
+});
+
+// Watch for changes and emit the updated value
+watch(
+  clause,
+  (newClause) => {
+    console.log("newClause: ", newClause);
+    emit("update:modelValue", newClause);
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>
