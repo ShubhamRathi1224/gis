@@ -504,6 +504,10 @@ export function generateSQL(queryJson) {
 //   return `${selectClause} ${fromClause} WHERE ${whereClause}`;
 // }
 
+//
+//
+//
+
 export function generateSQL1(query) {
   const selectClause = `SELECT ${query.select.join(", ")} FROM ${
     query.from.table
@@ -610,4 +614,121 @@ function buildOptionalDateRangeCondition(cond) {
   const maxCheck = `((SELECT JSON_VALUE(AvailableRequestTypes, '${cond.configPaths.max}') FROM RequestTypes WHERE Id = '${cond.requestTypeId}') IS NULL OR DATEDIFF(DAY, CURRENT_TIMESTAMP, ${cond.column}) < (SELECT JSON_VALUE(AvailableRequestTypes, '${cond.configPaths.max}') FROM RequestTypes WHERE Id = '${cond.requestTypeId}'))`;
 
   return `${minCheck} AND ${maxCheck}`;
+}
+
+//
+//
+//
+
+export const params2 = {
+  queryType: "SELECT",
+  select: ["*", "id", "date"],
+  from: {
+    table: "Licenses",
+    alias: "l",
+  },
+  joins: [
+    {
+      queryType: "SELECT",
+      select: ["*", "rId", "rDate"],
+      from: {
+        table: "Requests",
+        alias: "r",
+      },
+      joins: [],
+      where: [
+        {
+          type: "condition",
+          error: null,
+          column: "r.Id",
+          operator: "=",
+          value: "l.requestId",
+        },
+      ],
+      on: "",
+      type: "INNER",
+    },
+  ],
+  where: [
+    {
+      type: "condition",
+      error: null,
+      column: "l.statusId",
+      operator: "=",
+      value: "2",
+    },
+  ],
+};
+
+const test = {
+  queryType: "SELECT",
+  select: ["*"],
+  from: {
+    table: "Licenses",
+    alias: "l",
+  },
+  joins: [],
+  where: [],
+};
+
+export function generateSQL2(json) {
+  console.log("json: ", json);
+  function escapeValue(value) {
+    return typeof value === "string" && !value.includes(".")
+      ? `'${value}'`
+      : value;
+  }
+
+  function processSelect(select) {
+    console.log("select: ", select);
+    return select?.join(", ");
+  }
+
+  function processFrom(from) {
+    return `${from?.table} AS ${from?.alias}`;
+  }
+
+  function processWhere(whereArray) {
+    if (!whereArray || !whereArray.length) return "";
+    const conditions = whereArray
+      .map((cond) => {
+        if (cond.type === "condition") {
+          return `${cond.column} ${cond.operator} ${escapeValue(cond.value)}`;
+        }
+        return "";
+      })
+      .filter(Boolean);
+    return conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  }
+
+  function processJoin(join) {
+    const joinSelect = processSelect(join?.select);
+    const joinFrom = processFrom(join?.from);
+    const joinWhere = processWhere(join?.where);
+
+    // If join.on is provided explicitly, use it, otherwise derive from where (for nested joins)
+    const onCondition =
+      join.on ||
+      join.where
+        ?.map((w) => `${w.column} ${w.operator} ${w.value}`)
+        .join(" AND ");
+
+    return `${join.type} JOIN (
+        SELECT ${joinSelect}
+        FROM ${joinFrom}
+        ${joinWhere}
+      ) AS ${join.from.alias} ON ${onCondition}`;
+  }
+
+  const select = processSelect(json.select);
+  const from = processFrom(json.from);
+  const joins = (json.joins || []).map(processJoin).join("\n");
+  const where = processWhere(json.where);
+
+  const sql = `SELECT ${select}
+  FROM ${from}
+  ${joins}
+  ${where ? "\n" + where : ""}`;
+
+  return sql;
 }

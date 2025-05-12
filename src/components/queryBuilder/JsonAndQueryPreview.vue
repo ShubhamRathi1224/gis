@@ -6,20 +6,28 @@
       </pre
     >
   </div>
-
-  <!-- <div class="rounded-xl border p-4 shadow">
+  <div class="rounded-xl border p-4 shadow">
     <h3 class="text-lg font-semibold">Generated SQL query</h3>
     <pre class="bg-gray-100 p-2 rounded text-sm overflow-auto max-h-64">
-        {{ generateSQL1(params1) }}
-      </pre>
-  </div> -->
-  <!-- {{ generateSQL(props.modelValue) }} -->
+      {{ generateSQL2(props.modelValue) }}
+    </pre>
+  </div>
   <!-- {{ generateSQL(params1) }} -->
+  <!-- {{ generateSQL(props.modelValue) }} -->
+  <!-- {{ generateSQL1(formattedJson) }} -->
+  <!-- {{ generateSQL1(params1) }} -->
+  <!-- {{ generateSQL2(params2) }} -->
 </template>
 
 <script setup>
 import { computed } from "vue";
-import { generateSQL, generateSQL1, params1 } from "../../utils/query";
+import {
+  generateSQL,
+  generateSQL1,
+  generateSQL2,
+  params1,
+  params2,
+} from "../../utils/query";
 
 const props = defineProps({
   modelValue: Object,
